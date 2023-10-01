@@ -18,6 +18,8 @@ Calculate lighting on second render pass, so we can discard invisible probes by 
 
 ## Reference
 [scratchapixel.com has nice ray traycing tutorials](https://www.scratchapixel.com) 
+
 [nice light probes and SH article](https://handmade.network/p/75/monter/blog/p/7288-engine_work__global_illumination_with_irradiance_probes)
+
 [Spherical Harmonic Lighting: The Gritty Details](https://3dvar.com/Green2003Spherical.pdf) 
 
