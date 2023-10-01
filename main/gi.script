@@ -1,0 +1,428 @@
+go.property('bounds_min', vmath.vector3(-10, -10, -10))
+go.property('bounds_max', vmath.vector3(10, 10, 10))
+
+local SETTINGS = require "settings"
+
+local faces = {}
+local meshes = {}
+
+local PROBES_PER_ROW = 4
+local RAYS =  256
+
+local BIAS = 0.01
+
+local function load_probes_into_texture(probes)
+	--each probe (9 sh coefficients) will be stored in 3 rgb texels
+		
+	local tbuffer = buffer.create(PROBES_PER_ROW * PROBES_PER_ROW * PROBES_PER_ROW * 3, { {name=hash("rgb"), type=buffer.VALUE_TYPE_FLOAT32, count=3} } )
+	local tstream = buffer.get_stream(tbuffer, hash("rgb"))
+
+	-- Fill the buffer stream with float values
+
+	local index = 1
+	for y = 1, PROBES_PER_ROW do
+		for x = 1, PROBES_PER_ROW do
+			for z = 1, PROBES_PER_ROW do
+				local pi = (y - 1) * PROBES_PER_ROW * PROBES_PER_ROW + (x-1) * PROBES_PER_ROW + z
+				local probe = probes[pi]
+	
+				tstream[index + 0] = probe.coef[1]
+				tstream[index + 1] = probe.coef[2]
+				tstream[index + 2] = probe.coef[3]
+				
+				tstream[index + 3] = probe.coef[4]
+				tstream[index + 4] = probe.coef[5]
+				tstream[index + 5] = probe.coef[6]
+				
+				tstream[index + 6] = probe.coef[7]
+				tstream[index + 7] = probe.coef[8]
+				tstream[index + 8] = probe.coef[9]
+
+				index = index + 9
+			end
+		end
+	end
+
+	local tparams = {
+		width          = PROBES_PER_ROW * PROBES_PER_ROW * 3,
+		height         = PROBES_PER_ROW,
+		type           = resource.TEXTURE_TYPE_2D,
+		format         = resource.TEXTURE_FORMAT_RGB32F,
+	}
+
+	-- Note that we pass the buffer as the last argument here!
+	local my_texture_id = resource.create_texture("/probes.texturec", tparams, tbuffer)
+
+	-- assign the texture to a model
+	for _, mesh in ipairs(meshes) do
+		go.set(mesh, "texture1", my_texture_id)
+	end
+
+	go.set("/preview#mesh", "texture0", my_texture_id)
+end
+
+	
+--https://www.scratchapixel.com
+local function ray_triangle_intersect(orig, dir, v1, v2, v3)
+
+	local epsilon = 1e-8
+	
+	-- compute the plane's normal
+	local vv1 = v2 - v1
+	local vv2 = v3 - v1
+	-- no need to normalize
+	local n = vmath.cross(vv1, vv2)
+	local area2 = vmath.length(n)
+
+	-- Step 1: finding P
+
+	-- check if the ray and plane are parallel.
+	local n_dot_ray = vmath.dot(n, dir)
+	if math.abs(n_dot_ray) < epsilon then -- almost 0
+		return false end -- they are parallel, so they don't intersect! 
+
+	local d = - vmath.dot(n, v1)
+
+	local t = -(vmath.dot(n, orig) + d) / n_dot_ray;
+
+	-- check if the triangle is behind the ray
+	if (t < 0) then return false end -- the triangle is behind
+
+	local p = orig + t * dir;
+
+	local edge = v2 - v1; 
+	local vp = p - v1;
+	local c = vmath.cross(edge, vp) -- vector perpendicular to triangle's plane
+	if (vmath.dot(n, c) < 0) then return false end -- p is on the right side
+
+	edge = v3 - v2
+	vp = p - v2
+	c = vmath.cross(edge, vp)
+	local u = vmath.length(c) / area2
+	if (vmath.dot(n, c) < 0) then return false end
+
+	edge = v1 - v3
+	vp = p - v3
+	c = vmath.cross(edge, vp) 
+	local v = vmath.length(c) / area2
+	if (vmath.dot(n, c) < 0) then return false end
+
+	return true, t, u, v -- this ray hits the triangle
+end
+
+local function intersect(orig, dir) 
+	local result = false
+	local near = math.huge
+	local face = nil
+	local uv = {}
+	for i, f in ipairs(faces) do
+	
+		local check, t, u, v  = ray_triangle_intersect(orig, dir, f.v[1], f.v[2], f.v[3])
+		
+		if check and (t < near) then
+			near = t
+			face = f
+			uv.x = u
+			uv.y = v
+			result = true 
+		end
+	end
+
+	return result, near, face, uv
+end
+
+local function get_normal(point, face, uv)
+	local n = (1 - uv.x - uv.y) * face.n[1] + uv.x * face.n[2] + uv.y * face.n[3]
+
+	n = vmath.normalize(n)
+
+	--texture coordinates
+	--const Vec2f &st0 = texCoordinates[trisIndex[triIndex * 3]]
+	--const Vec2f &st1 = texCoordinates[trisIndex[triIndex * 3 + 1]]; 
+	--const Vec2f &st2 = texCoordinates[trisIndex[triIndex * 3 + 2]]; 
+	--hitTextureCoordinates = (1 - uv.x - uv.y) * st0 + uv.x * st1 + uv.y * st2; 
+	return n
+end
+
+local function cast_ray(orig, dir)
+	local index = 0
+	local result = vmath.vector3(0, 0, 0)
+	local intersection, near, face, uv = intersect(orig, dir)
+	if intersection then
+		--calculate light
+		local point = orig + dir * near
+		local n = get_normal(point, face, uv)
+
+		local color = vmath.vector3(1, 1, 1) -- need to read texture here and multiply by light color
+		for _, light in ipairs(SETTINGS.lights) do
+			--trace shadow
+			local light_dir = vmath.normalize(light.pos - point)
+		
+			local shadow = intersect(point + n * BIAS, light_dir)
+			if not shadow then
+				local d = vmath.length(light.pos - point)
+				local k = 1. / (light.attn0 + light.attn1 * d + light.attn2 * d * d)
+				local diff = math.max(0, vmath.dot(n, light_dir));
+
+				--attenutate again to probe position?
+				--d = vmath.length(orig - point)
+				--k = k / (light.attn0 + light.attn1 * d + light.attn2 * d * d)
+				
+				result = result + color * diff * k;
+			end
+		end
+	end
+
+	return result
+end
+
+--https://handmade.network/p/75/monter/blog/p/7288-engine_work__global_illumination_with_irradiance_probes
+--https://www.ppsloan.org/publications/StupidSH36.pdf    ---Appendix A2
+local function sh(dir, basis)
+
+	if basis == 1 then
+		return 0.28209479177387814347
+	end
+	
+	if basis == 2 then
+		return -0.48860251190291992159 * dir.y
+	end
+	
+	if basis == 3 then
+		return 0.48860251190291992159 * dir.z
+	end
+
+	if basis == 4 then
+		return  -0.48860251190291992159 * dir.x
+	end
+
+	if basis == 5 then
+		return 1.092548430592079 * dir.x * dir.y
+	end
+
+	if basis == 6 then
+		return -1.092548430592079 * dir.z * dir.y
+	end
+
+	if basis == 7 then
+		return 0.31539156525252 * (3 * dir.z * dir.z - 1)
+	end
+
+	if basis == 8 then
+		return -1.092548430592079 * dir.z * dir.x
+	end
+
+	if basis == 9 then
+		return 0.54627421529604 * (dir.x * dir.x - dir.y * dir.y)
+	end
+
+	return 0.0
+end
+
+	
+local function calculate_probe(probe)
+	local num_coef = 9
+	probe.coef = {0, 0, 0, 0, 0, 0, 0, 0, 0}
+
+	--https://3dvar.com/Green2003Spherical.pdf
+	local sqrt_n_samples = math.sqrt(RAYS)
+	local n = 1.0/sqrt_n_samples
+	for a = 0, sqrt_n_samples - 1 do
+		for b = 0, sqrt_n_samples - 1 do
+			-- generate unbiased distribution of spherical coords 
+			local x = (a + math.random()) * n
+			local y = (b + math.random()) * n
+			local theta = 2.0 * math.acos(math.sqrt(1.0 - x))
+			local phi = 2.0 * math.pi * y
+			--convert spherical coords to unit vector
+			local dir = vmath.vector3(math.sin(theta)*math.cos(phi), math.sin(theta)*math.sin(phi), math.cos(theta))
+
+			local value = cast_ray(probe.pos, dir)
+			
+			for i = 1, num_coef do 
+				probe.coef[i] = probe.coef[i] + value.x * sh(dir, i) --just one set of coefficients, TODO - 3 sets: for each color channel
+			end
+			
+		end
+	end
+
+	--scale
+	for i = 1, num_coef do 
+		probe.coef[i] = probe.coef[i] * 4 * math.pi / RAYS
+	end
+
+end
+
+function init(self)
+	imgui.set_ini_filename()
+	self.count = 0
+	local probes = {}
+	math.randomseed(os.clock()*100000)
+
+	timer.delay(.1, false, function()
+		
+		local step = vmath.vector4((self.bounds_max.x - self.bounds_min.x)/(PROBES_PER_ROW -1), (self.bounds_max.y - self.bounds_min.y)/(PROBES_PER_ROW - 1), (self.bounds_max.z - self.bounds_min.z)/(PROBES_PER_ROW - 1), 0)
+
+		for _, mesh in ipairs(meshes) do
+			go.set(mesh, "bounds", vmath.vector4(self.bounds_min.x, self.bounds_min.y, self.bounds_min.z, PROBES_PER_ROW))
+			go.set(mesh, "step", step)
+			go.set(mesh, "size", vmath.vector4(1.0 / (PROBES_PER_ROW * PROBES_PER_ROW), 1.0 /PROBES_PER_ROW, 0, 0))
+		end
+		
+		self.co = coroutine.create(function()
+			for z = 0, PROBES_PER_ROW - 1 do
+				for y = 0, PROBES_PER_ROW -1 do
+					for x = 0, PROBES_PER_ROW  - 1 do
+						local pos = vmath.vector3(self.bounds_min.x + step.x * x, self.bounds_min.y  + step.y * y, self.bounds_min.z  + step.z * z)
+						local id = factory.create("/probes#factory", pos, nil, {}, vmath.vector3(0.4,0.4,0.4))
+						local probe = {id = id, pos = pos}
+						calculate_probe(probe)
+
+						local model = msg.url(probe.id)
+						model.fragment =  "model"
+
+						--[[
+						probe.coef = {0,0,0,0,0,0,0,0,0}
+						probe.coef[1] = 0.25 * x
+						probe.coef[2] = 0.25 * y
+						probe.coef[3] = 0.25 * z
+						probe.coef[4] = 1.
+						--]]
+						
+						go.set(model, "coefs", vmath.vector4(probe.coef[1], probe.coef[2], probe.coef[3], probe.coef[4]), {index = 1})
+						go.set(model, "coefs", vmath.vector4(probe.coef[5], probe.coef[6], probe.coef[7], probe.coef[8]), {index = 2})
+						go.set(model, "coefs", vmath.vector4(probe.coef[9], 0, 0, 0), {index = 3})
+
+						table.insert(probes, probe)
+						self.count = self.count + 1
+						coroutine.yield()
+					end
+				end
+			end
+			self.co = nil
+
+			load_probes_into_texture(probes)
+			faces = nil
+		end)
+
+		coroutine.resume(self.co)
+	end)
+end
+
+local function transpose(m)
+	local res = vmath.matrix4()
+	res.m00 = m.m00
+	res.m01 = m.m10
+	res.m02 = m.m20
+	res.m03 = m.m30
+	
+	res.m10 = m.m01
+	res.m11 = m.m11
+	res.m12 = m.m21
+	res.m13 = m.m31
+
+	res.m20 = m.m02
+	res.m21 = m.m12
+	res.m22 = m.m22
+	res.m23 = m.m32
+
+	res.m30 = m.m03
+	res.m31 = m.m13
+	res.m32 = m.m23
+	res.m33 = m.m33
+	
+
+	return res
+end
+
+
+function on_message(self, message_id, message, sender)
+	if message_id == hash("register_mesh") then
+		local m = go.get_world_transform(sender)
+		local n = transpose(vmath.inv(m))
+		local url = msg.url(sender)
+		url.fragment = "mesh"
+
+		table.insert(meshes, url)
+		go.set(url, "mtx_normal_world", n)
+		
+		local res = go.get(url, "vertices")
+		local buf = resource.get_buffer(res)
+
+		
+		local position = buffer.get_stream(buf, "position")
+		local normal = buffer.get_stream(buf, "normal")
+		local i = 1
+		while i < #position do
+			local v1 = m * vmath.vector4(position[i], position[i+1], position[i+2], 1)
+			local v2 = m * vmath.vector4(position[i+3], position[i+4], position[i+5], 1)
+			local v3 = m * vmath.vector4(position[i+6], position[i+7], position[i+8], 1)
+
+			local n1 = n * vmath.vector4(normal[i], normal[i+1], normal[i+2], 0)
+			local n2 = n * vmath.vector4(normal[i+3], normal[i+4], normal[i+5], 0)
+			local n3 = n * vmath.vector4(normal[i+6], normal[i+7], normal[i+8], 0)
+
+			v1 = vmath.vector3(v1.x, v1.y, v1.z)
+			v2 = vmath.vector3(v2.x, v2.y, v2.z)
+			v3 = vmath.vector3(v3.x, v3.y, v3.z)
+
+			n1 = vmath.vector3(n1.x, n1.y, n1.z)
+			n2 = vmath.vector3(n2.x, n2.y, n2.z)
+			n3 = vmath.vector3(n3.x, n3.y, n3.z)
+			
+			i = i + 9
+			
+			table.insert(faces, {v = {v1, v2, v3}, n = {n1, n2, n3}})
+		end
+
+		
+	elseif message_id == hash("register_light") then
+		table.insert(SETTINGS.lights, {
+			pos = go.get_world_position(sender),
+			attn0 = message.attn0,
+			attn1 = message.attn1, 
+			attn2 = message.attn2
+		})
+	end
+end
+
+function update(self)
+	local title = "Light probes"
+	
+	if self.co then
+		coroutine.resume(self.co)
+		title = title .. " - calculating " .. self.count .. " of " .. PROBES_PER_ROW * PROBES_PER_ROW * PROBES_PER_ROW
+	end
+
+	imgui.set_next_window_size(500, 200)
+
+	imgui.begin_window(title)
+
+	local changed, checked = imgui.checkbox("show probes", SETTINGS.probes)
+	if changed then
+		SETTINGS.probes = not SETTINGS.probes
+	end
+
+	changed, checked = imgui.checkbox("textures", SETTINGS.textures)
+	if changed then
+		SETTINGS.textures = not SETTINGS.textures
+	end
+
+	changed, checked = imgui.checkbox("direct light", SETTINGS.direct)
+	if changed then
+		SETTINGS.direct = not SETTINGS.direct
+	end
+
+	changed, checked = imgui.checkbox("indirect light", SETTINGS.indirect)
+	if changed then
+		SETTINGS.indirect = not SETTINGS.indirect
+	end
+
+	changed, checked = imgui.checkbox("direct from probes", SETTINGS.direct2)
+	if changed then
+		SETTINGS.direct2 = not SETTINGS.direct2
+	end
+
+	imgui.end_window()
+end
+
