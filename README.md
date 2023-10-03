@@ -10,7 +10,7 @@ An attempt to implement irradiance probes for global illumination in Defold.
 
 Defold (1.5.0) doesn't support compute shaders, so raytracing is performed on CPU, that makes this approach suitable only for static geometry and lights. And to be honest, lightmaps will give you better results in this situation. But my goal was to understand SH, light probes and passing data via textures.
 
-![lightprobes](https://github.com/abadonna/defold-light-probes/blob/main/sample.jpg)
+![lightprobes](https://github.com/abadonna/defold-light-probes/blob/4-SH-per-channel/sample.jpg)
 
 
 ## How to achieve better results
