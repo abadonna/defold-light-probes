@@ -25,7 +25,9 @@ void main()
         color = texture2D(tex0, var_texcoord0.xy) * tint_pm;
     }
 
-    vec3[2] probelight = get_light_from_probes(var_world_position.xyz, var_world_normal);
+ 
+    vec3 probe = get_light_from_probes(var_world_position.xyz, var_world_normal, 
+        settings.y == 1 ? var_world_normal : - var_world_normal);
     
     // Diffuse light calculations
     vec3 light_dir = vec3(normalize(var_light.xyz - var_position.xyz));
@@ -39,13 +41,14 @@ void main()
     }
 
     if (settings.y == 1.) { //indirect
-        result += probelight[0];
-    }
-   
-    if (settings.z == 1.) { //direct from probes
-        result += probelight[1];
+        result += probe;
     }
 
+    if (settings.z == 1.) { //direct from probe
+        result += probe;
+    }
+   
+   
     result = clamp(result, 0.0, 1.0);
 
     gl_FragColor =vec4(color.xyz * result , 1.0);

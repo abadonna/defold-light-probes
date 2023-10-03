@@ -5,7 +5,7 @@ An attempt to implement irradiance probes for global illumination in Defold.
 ## Workflow
 * collect geometry for raytraycing
 * create uniform 3d grid of probes, for each probe we trace rays in number of directions to find irradiance
-* approximate irradiance with spherical harmonics and save result in texture. In this branch we use 4 SH coefficients, so it's 1 rgba pixel for each channel per probe in texture image. It means 3 pixels (r, g and b channels) per probe. Check other branches for other approaches.
+* approximate irradiance with spherical harmonics and save result in texture. In this branch we use 9 SH coefficients, so it's 3 rgb pixel for each channel per probe in texture image. It means 9 pixels (r, g and b channels) per probe. Check other branches for other approaches.
 * In shader - read 8 nearest probes ("cell" of probes grid that contains the point we want to find light for) and trilinear interpolate result.
 
 Defold (1.5.0) doesn't support compute shaders, so raytracing is performed on CPU, that makes this approach suitable only for static geometry and lights. And to be honest, lightmaps will give you better results in this situation. But my goal was to understand SH, light probes and passing data via textures.
@@ -14,7 +14,6 @@ Defold (1.5.0) doesn't support compute shaders, so raytracing is performed on CP
 
 
 ## How to achieve better results
-Use more SH's, e.g. 9 per channel.
 Calculate lighting on second render pass, so we can discard invisible probes by checking depth in depth buffer.
 
 

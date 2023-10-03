@@ -37,11 +37,17 @@ function update(self, dt)
 	changed, checked = imgui.checkbox("indirect light", SETTINGS.indirect)
 	if changed then
 		SETTINGS.indirect = not SETTINGS.indirect
+		if SETTINGS.indirect then --too much operations in shader to calc both
+			SETTINGS.direct2 = false
+		end
 	end
 
 	changed, checked = imgui.checkbox("direct from probes", SETTINGS.direct2)
 	if changed then
 		SETTINGS.direct2 = not SETTINGS.direct2
+		if SETTINGS.direct2 then --too much operations in shader to calc both
+			SETTINGS.indirect = false
+		end
 	end
 
 	imgui.end_window()

@@ -13,10 +13,10 @@ local textures = {}
 local BIAS = 0.01
 
 local function load_probes_into_texture(self, probes)
-	--each probe (4x3 sh coefficients) will be stored in 3 rgba texels
+	--each probe (9x3 sh coefficients) will be stored in 9 rgb texels
 
-	local tbuffer = buffer.create(self.probes_per_row * self.probes_per_row * self.probes_per_row * 3, { {name=hash("rgba"), type=buffer.VALUE_TYPE_FLOAT32, count=4} } )
-	local tstream = buffer.get_stream(tbuffer, hash("rgba"))
+	local tbuffer = buffer.create(self.probes_per_row * self.probes_per_row * self.probes_per_row * 9, { {name=hash("rgb"), type=buffer.VALUE_TYPE_FLOAT32, count=4} } )
+	local tstream = buffer.get_stream(tbuffer, hash("rgb"))
 
 	-- Fill the buffer stream with float values
 
@@ -27,31 +27,30 @@ local function load_probes_into_texture(self, probes)
 				local pi = (y - 1) * self.probes_per_row * self.probes_per_row + (x-1) * self.probes_per_row + z
 				local probe = probes[pi]
 
-				tstream[index + 1] = probe.r[1]
-				tstream[index + 2] = probe.r[2]
-				tstream[index + 3] = probe.r[3]
-				tstream[index + 4] = probe.r[4]
+				for i = 1, 9 do
+					tstream[index + i] = probe.r[i]
+				end
+				index = index + 9
 
-				tstream[index + 5] = probe.g[1]
-				tstream[index + 6] = probe.g[2]
-				tstream[index + 7] = probe.g[3]
-				tstream[index + 8] = probe.g[4]
+				for i = 1, 9 do
+					tstream[index + i] = probe.g[i]
+				end
+				index = index + 9
 
-				tstream[index + 9] =  probe.b[1]
-				tstream[index + 10] = probe.b[2]
-				tstream[index + 11] = probe.b[3]
-				tstream[index + 12] = probe.b[4]
-
-				index = index + 12
+				for i = 1, 9 do
+					tstream[index + i] = probe.b[i]
+				end
+				index = index + 9
+				
 			end
 		end
 	end
 
 	local tparams = {
-		width          = self.probes_per_row * self.probes_per_row * 3,
+		width          = self.probes_per_row * self.probes_per_row * 9,
 		height         = self.probes_per_row,
 		type           = resource.TEXTURE_TYPE_2D,
-		format         = resource.TEXTURE_FORMAT_RGBA32F,
+		format         = resource.TEXTURE_FORMAT_RGB32F,
 	}
 
 	-- Note that we pass the buffer as the last argument here!
@@ -297,7 +296,7 @@ function init(self)
 		for _, mesh in ipairs(meshes) do
 			go.set(mesh, "bounds", vmath.vector4(self.bounds_min.x, self.bounds_min.y, self.bounds_min.z, self.probes_per_row))
 			go.set(mesh, "step", step)
-			go.set(mesh, "size", vmath.vector4(1.0 / (self.probes_per_row * self.probes_per_row), 1.0 /self.probes_per_row, 1.0 / 3. --[[3 texels per probe]], 0))
+			go.set(mesh, "size", vmath.vector4(1.0 / (self.probes_per_row * self.probes_per_row), 1.0 /self.probes_per_row, 1.0 / 9. --[[9 texels per probe]], 0))
 		end
 		
 		self.co = coroutine.create(function()

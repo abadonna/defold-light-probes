@@ -18,21 +18,36 @@ float sh(int basis, highp vec3 dir) {
 	return 0.0;
 }
 
-vec3 calculate(mat4 probe, vec3 dir) {
+vec3 calculate(mat3 red, mat3 green, mat3 blue, vec3 dir) {
 	vec3 result = vec3(0.);
-	for (int i = 0; i < 4; i++) {
-		float k = sh(i, dir);
-		result.x += k * probe[0][i];
-		result.y += k * probe[1][i];
-		result.z += k * probe[2][i];
+	for (int i = 0; i < 3; i++) {
+		for (int j = 0; j < 3; j++) {
+			float k = sh(3 * i + j, dir);
+			result.x += k * red[i][j];
+			result.y += k * green[i][j];
+			result.z += k * blue[i][j];
+		}
 	}
+	
 
 	return result;
 }
 
-vec4 get_probe_data(ivec3 i, int channel) {
-	vec2 st = vec2((i.y * bounds.w + i.x + size.z * channel) * size.x,  i.z * size.y);
-	return texture2D(tex_probes, st);
+mat3 get_probe_data(ivec3 i, int channel) {
+	float offset = i.y * bounds.w + i.x + channel * 3 * size.z;
+	float y = i.z * size.y;
+	
+	vec2 st = vec2((offset) * size.x, y);
+	vec4 v1 = texture2D(tex_probes, st);
+
+	st = vec2((offset + size.z) * size.x, y);
+	vec4 v2 = texture2D(tex_probes, st);
+
+	st = vec2((offset + 2 * size.z) * size.x, y);
+	vec4 v3 = texture2D(tex_probes, st);
+	
+
+	return mat3(v1.xyz, v2.xyz, v3.xyz);
 }
 
 vec3 get_probe_position(ivec3 i) 
@@ -54,7 +69,7 @@ vec3 interpolate(vec3 data1, vec3 data2, float k) {
 }
 
 
-vec3[2] get_light_from_probes(vec3 world_position, vec3 world_normal) {
+vec3 get_light_from_probes(vec3 world_position, vec3 world_normal, vec3 look) {
 	//find nearest probe to var_world_position
 
 	vec3 v = world_position.xyz - bounds.xyz;
@@ -75,8 +90,7 @@ vec3[2] get_light_from_probes(vec3 world_position, vec3 world_normal) {
 	int dz = pos.z < world_position.z ? 1 : -1;
 
 
-	vec3[8] indirect = vec3[8](vec3(999.), vec3(999.), vec3(999.), vec3(999.), vec3(999.), vec3(999.),vec3(999.),vec3(999.));
-	vec3[8] direct = indirect;
+	vec3[8] values = vec3[8](vec3(999.), vec3(999.), vec3(999.), vec3(999.), vec3(999.), vec3(999.),vec3(999.),vec3(999.));
 	
 	int count = -1;
 	for (int i = 0; i < 2;  i++) {
@@ -95,17 +109,14 @@ vec3[2] get_light_from_probes(vec3 world_position, vec3 world_normal) {
 					continue;
 				}
 
-				mat4 probe = mat4(0.);
-				probe[0] = get_probe_data(index, 0); //red
-				probe[1] = get_probe_data(index, 1); //green
-				probe[2] = get_probe_data(index, 2); //blue
+				mat3 red = get_probe_data(index, 0); 
+				mat3 green = get_probe_data(index, 1);
+				mat3 blue = get_probe_data(index, 2);
 
-				indirect[count] = calculate(probe, world_normal);
-				direct[count] = calculate(probe, -world_normal);
-
-				//we can  interpolate SH coefficients, but this time we interpolate values
-				//interpolating values seems to be more correct if we use direction to intersection point, not normal
-				//but it requires raytrace and buffer depth?
+				values[count] = calculate(red, green, blue, look);
+			
+				//more correct to use direction to intersection point, 
+				//but it requires raytrace and buffer depth
 			}
 		}
 	}
@@ -131,29 +142,18 @@ vec3[2] get_light_from_probes(vec3 world_position, vec3 world_normal) {
 
 
 	//interpolate along the x-axis for each of the four front and back faces
-	vec3 data00 = interpolate(indirect[0], indirect[4], x);
-	vec3 data01 = interpolate(indirect[1], indirect[5], x);
-	vec3 data10 = interpolate(indirect[2], indirect[6], x);
-	vec3 data11 = interpolate(indirect[3], indirect[7], x);
+	vec3 data00 = interpolate(values[0], values[4], x);
+	vec3 data01 = interpolate(values[1], values[5], x);
+	vec3 data10 = interpolate(values[2], values[6], x);
+	vec3 data11 = interpolate(values[3], values[7], x);
 
 	//interpolate along the y-axis for the two front faces
 	vec3 data0 = interpolate(data00, data10, y);
 	vec3 data1 = interpolate(data01, data11, y);
 
 	//interpolate along the z-axis for the front face
-	vec3 light1 = interpolate(data0, data1, z);
+	vec3 result = interpolate(data0, data1, z);
 
-	data00 = interpolate(direct[0], direct[4], x);
-	data01 = interpolate(direct[1], direct[5], x);
-	data10 = interpolate(direct[2], direct[6], x);
-	data11 = interpolate(direct[3], direct[7], x);
 
-	data0 = interpolate(data00, data10, y);
-	data1 = interpolate(data01, data11, y);
-
-	vec3 light2 = interpolate(data0, data1, z);
-
-	
-
-	return vec3[](light1, light2);
+	return result;
 }
