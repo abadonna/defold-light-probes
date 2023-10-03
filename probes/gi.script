@@ -1,53 +1,57 @@
 go.property('bounds_min', vmath.vector3(-10, -10, -10))
 go.property('bounds_max', vmath.vector3(10, 10, 10))
 
+go.property('probes_per_row', 4)
+go.property('rays', 256)
+
 local SETTINGS = require "settings"
 
 local faces = {}
 local meshes = {}
-
-local PROBES_PER_ROW = 4
-local RAYS =  256
+local textures = {}
 
 local BIAS = 0.01
 
-local function load_probes_into_texture(probes)
-	--each probe (9 sh coefficients) will be stored in 3 rgb texels
-		
-	local tbuffer = buffer.create(PROBES_PER_ROW * PROBES_PER_ROW * PROBES_PER_ROW * 3, { {name=hash("rgb"), type=buffer.VALUE_TYPE_FLOAT32, count=3} } )
-	local tstream = buffer.get_stream(tbuffer, hash("rgb"))
+local function load_probes_into_texture(self, probes)
+	--each probe (4x3 sh coefficients) will be stored in 3 rgba texels
+
+	local tbuffer = buffer.create(self.probes_per_row * self.probes_per_row * self.probes_per_row * 3, { {name=hash("rgba"), type=buffer.VALUE_TYPE_FLOAT32, count=4} } )
+	local tstream = buffer.get_stream(tbuffer, hash("rgba"))
 
 	-- Fill the buffer stream with float values
 
-	local index = 1
-	for y = 1, PROBES_PER_ROW do
-		for x = 1, PROBES_PER_ROW do
-			for z = 1, PROBES_PER_ROW do
-				local pi = (y - 1) * PROBES_PER_ROW * PROBES_PER_ROW + (x-1) * PROBES_PER_ROW + z
+	local index = 0
+	for y = 1, self.probes_per_row do
+		for x = 1, self.probes_per_row do
+			for z = 1, self.probes_per_row do
+				local pi = (y - 1) * self.probes_per_row * self.probes_per_row + (x-1) * self.probes_per_row + z
 				local probe = probes[pi]
-	
-				tstream[index + 0] = probe.coef[1]
-				tstream[index + 1] = probe.coef[2]
-				tstream[index + 2] = probe.coef[3]
-				
-				tstream[index + 3] = probe.coef[4]
-				tstream[index + 4] = probe.coef[5]
-				tstream[index + 5] = probe.coef[6]
-				
-				tstream[index + 6] = probe.coef[7]
-				tstream[index + 7] = probe.coef[8]
-				tstream[index + 8] = probe.coef[9]
 
-				index = index + 9
+				tstream[index + 1] = probe.r[1]
+				tstream[index + 2] = probe.r[2]
+				tstream[index + 3] = probe.r[3]
+				tstream[index + 4] = probe.r[4]
+
+				tstream[index + 5] = probe.g[1]
+				tstream[index + 6] = probe.g[2]
+				tstream[index + 7] = probe.g[3]
+				tstream[index + 8] = probe.g[4]
+
+				tstream[index + 9] =  probe.b[1]
+				tstream[index + 10] = probe.b[2]
+				tstream[index + 11] = probe.b[3]
+				tstream[index + 12] = probe.b[4]
+
+				index = index + 12
 			end
 		end
 	end
 
 	local tparams = {
-		width          = PROBES_PER_ROW * PROBES_PER_ROW * 3,
-		height         = PROBES_PER_ROW,
+		width          = self.probes_per_row * self.probes_per_row * 3,
+		height         = self.probes_per_row,
 		type           = resource.TEXTURE_TYPE_2D,
-		format         = resource.TEXTURE_FORMAT_RGB32F,
+		format         = resource.TEXTURE_FORMAT_RGBA32F,
 	}
 
 	-- Note that we pass the buffer as the last argument here!
@@ -137,11 +141,8 @@ local function get_normal(point, face, uv)
 	n = vmath.normalize(n)
 
 	--texture coordinates
-	--const Vec2f &st0 = texCoordinates[trisIndex[triIndex * 3]]
-	--const Vec2f &st1 = texCoordinates[trisIndex[triIndex * 3 + 1]]; 
-	--const Vec2f &st2 = texCoordinates[trisIndex[triIndex * 3 + 2]]; 
-	--hitTextureCoordinates = (1 - uv.x - uv.y) * st0 + uv.x * st1 + uv.y * st2; 
-	return n
+	local st = (1 - uv.x - uv.y) * face.st[1] + uv.x * face.st[2] + uv.y * face.st[3]; 
+	return n, st
 end
 
 local function cast_ray(orig, dir)
@@ -151,26 +152,50 @@ local function cast_ray(orig, dir)
 	if intersection then
 		--calculate light
 		local point = orig + dir * near
-		local n = get_normal(point, face, uv)
+		local n, st = get_normal(point, face, uv)
+		--pprint(st)
 
 		local color = vmath.vector3(1, 1, 1) -- need to read texture here and multiply by light color
+
+		
+		if textures[face.t] then
+			local header = textures[face.t].header
+			local pixels = buffer.get_stream(textures[face.t].buffer, hash("pixels"))
+
+			local y = math.floor(st.y * header.height)
+			local x = math.floor(st.x * header.width) 
+			
+			local idx = y * header.width * header.channels + x * header.channels + 1
+		
+			color.x = pixels[idx] / 255
+			color.y = pixels[idx + 1] / 255
+			color.z = pixels[idx + 2] / 255
+		end 
+		
 		for _, light in ipairs(SETTINGS.lights) do
 			--trace shadow
 			local light_dir = vmath.normalize(light.pos - point)
 		
 			local shadow = intersect(point + n * BIAS, light_dir)
 			if not shadow then
+				local diffuse = vmath.vector3(0)
+				
+				diffuse.x = color.x * light.color.x
+				diffuse.y = color.y * light.color.y
+				diffuse.z = color.z * light.color.z
+				
 				local d = vmath.length(light.pos - point)
 				local k = 1. / (light.attn0 + light.attn1 * d + light.attn2 * d * d)
-				local diff = math.max(0, vmath.dot(n, light_dir));
+				local ndotl = math.max(0, vmath.dot(n, light_dir));
 
 				--attenutate again to probe position?
 				--d = vmath.length(orig - point)
 				--k = k / (light.attn0 + light.attn1 * d + light.attn2 * d * d)
 				
-				result = result + color * diff * k;
+				result = result + diffuse * ndotl * k
 			end
 		end
+	
 	end
 
 	return result
@@ -220,12 +245,14 @@ local function sh(dir, basis)
 end
 
 	
-local function calculate_probe(probe)
+local function calculate_probe(probe, rays)
 	local num_coef = 9
-	probe.coef = {0, 0, 0, 0, 0, 0, 0, 0, 0}
+	probe.r = {0, 0, 0, 0, 0, 0, 0, 0, 0}
+	probe.g = {0, 0, 0, 0, 0, 0, 0, 0, 0}
+	probe.b = {0, 0, 0, 0, 0, 0, 0, 0, 0}
 
 	--https://3dvar.com/Green2003Spherical.pdf
-	local sqrt_n_samples = math.sqrt(RAYS)
+	local sqrt_n_samples = math.sqrt(rays)
 	local n = 1.0/sqrt_n_samples
 	for a = 0, sqrt_n_samples - 1 do
 		for b = 0, sqrt_n_samples - 1 do
@@ -240,7 +267,9 @@ local function calculate_probe(probe)
 			local value = cast_ray(probe.pos, dir)
 			
 			for i = 1, num_coef do 
-				probe.coef[i] = probe.coef[i] + value.x * sh(dir, i) --just one set of coefficients, TODO - 3 sets: for each color channel
+				probe.r[i] = probe.r[i] + value.x * sh(dir, i)
+				probe.g[i] = probe.g[i] + value.y * sh(dir, i)
+				probe.b[i] = probe.b[i] + value.z * sh(dir, i)
 			end
 			
 		end
@@ -248,7 +277,9 @@ local function calculate_probe(probe)
 
 	--scale
 	for i = 1, num_coef do 
-		probe.coef[i] = probe.coef[i] * 4 * math.pi / RAYS
+		probe.r[i] = probe.r[i] * 4 * math.pi / rays
+		probe.g[i] = probe.g[i] * 4 * math.pi / rays
+		probe.b[i] = probe.b[i] * 4 * math.pi / rays
 	end
 
 end
@@ -261,22 +292,22 @@ function init(self)
 
 	timer.delay(.1, false, function()
 		
-		local step = vmath.vector4((self.bounds_max.x - self.bounds_min.x)/(PROBES_PER_ROW -1), (self.bounds_max.y - self.bounds_min.y)/(PROBES_PER_ROW - 1), (self.bounds_max.z - self.bounds_min.z)/(PROBES_PER_ROW - 1), 0)
+		local step = vmath.vector4((self.bounds_max.x - self.bounds_min.x)/(self.probes_per_row -1), (self.bounds_max.y - self.bounds_min.y)/(self.probes_per_row - 1), (self.bounds_max.z - self.bounds_min.z)/(self.probes_per_row - 1), 0)
 
 		for _, mesh in ipairs(meshes) do
-			go.set(mesh, "bounds", vmath.vector4(self.bounds_min.x, self.bounds_min.y, self.bounds_min.z, PROBES_PER_ROW))
+			go.set(mesh, "bounds", vmath.vector4(self.bounds_min.x, self.bounds_min.y, self.bounds_min.z, self.probes_per_row))
 			go.set(mesh, "step", step)
-			go.set(mesh, "size", vmath.vector4(1.0 / (PROBES_PER_ROW * PROBES_PER_ROW), 1.0 /PROBES_PER_ROW, 0, 0))
+			go.set(mesh, "size", vmath.vector4(1.0 / (self.probes_per_row * self.probes_per_row), 1.0 /self.probes_per_row, 1.0 / 3. --[[3 texels per probe]], 0))
 		end
 		
 		self.co = coroutine.create(function()
-			for z = 0, PROBES_PER_ROW - 1 do
-				for y = 0, PROBES_PER_ROW -1 do
-					for x = 0, PROBES_PER_ROW  - 1 do
+		for z = 0, self.probes_per_row - 1 do
+			for y = 0, self.probes_per_row -1 do
+				for x = 0, self.probes_per_row  - 1 do
 						local pos = vmath.vector3(self.bounds_min.x + step.x * x, self.bounds_min.y  + step.y * y, self.bounds_min.z  + step.z * z)
 						local id = factory.create("/probes#factory", pos, nil, {}, vmath.vector3(0.4,0.4,0.4))
 						local probe = {id = id, pos = pos}
-						calculate_probe(probe)
+						calculate_probe(probe, self.rays)
 
 						local model = msg.url(probe.id)
 						model.fragment =  "model"
@@ -289,10 +320,18 @@ function init(self)
 						probe.coef[4] = 1.
 						--]]
 						
-						go.set(model, "coefs", vmath.vector4(probe.coef[1], probe.coef[2], probe.coef[3], probe.coef[4]), {index = 1})
-						go.set(model, "coefs", vmath.vector4(probe.coef[5], probe.coef[6], probe.coef[7], probe.coef[8]), {index = 2})
-						go.set(model, "coefs", vmath.vector4(probe.coef[9], 0, 0, 0), {index = 3})
+						go.set(model, "red", vmath.vector4(probe.r[1], probe.r[2], probe.r[3], probe.r[4]), {index = 1})
+						go.set(model, "red", vmath.vector4(probe.r[5], probe.r[6], probe.r[7], probe.r[8]), {index = 2})
+						go.set(model, "red", vmath.vector4(probe.r[9], 0, 0, 0), {index = 3})
 
+						go.set(model, "green", vmath.vector4(probe.g[1], probe.g[2], probe.g[3], probe.g[4]), {index = 1})
+						go.set(model, "green", vmath.vector4(probe.g[5], probe.g[6], probe.g[7], probe.g[8]), {index = 2})
+						go.set(model, "green", vmath.vector4(probe.g[9], 0, 0, 0), {index = 3})
+
+						go.set(model, "blue", vmath.vector4(probe.b[1], probe.b[2], probe.b[3], probe.b[4]), {index = 1})
+						go.set(model, "blue", vmath.vector4(probe.b[5], probe.b[6], probe.b[7], probe.b[8]), {index = 2})
+						go.set(model, "blue", vmath.vector4(probe.b[9], 0, 0, 0), {index = 3})
+						
 						table.insert(probes, probe)
 						self.count = self.count + 1
 						coroutine.yield()
@@ -301,7 +340,7 @@ function init(self)
 			end
 			self.co = nil
 
-			load_probes_into_texture(probes)
+			load_probes_into_texture(self, probes)
 			faces = nil
 		end)
 
@@ -343,6 +382,17 @@ function on_message(self, message_id, message, sender)
 		local url = msg.url(sender)
 		url.fragment = "mesh"
 
+		local tkey = go.get(url, "texture0")
+
+		if SETTINGS.images[tkey] and not textures[tkey] then
+			local data = sys.load_resource(SETTINGS.images[tkey])
+			local image_resource = imageloader.load{
+				data = data
+			}
+
+			textures[tkey] = image_resource
+		end
+		
 		table.insert(meshes, url)
 		go.set(url, "mtx_normal_world", n)
 		
@@ -352,7 +402,10 @@ function on_message(self, message_id, message, sender)
 		
 		local position = buffer.get_stream(buf, "position")
 		local normal = buffer.get_stream(buf, "normal")
+		local texcoords = buffer.get_stream(buf, "texcoord0")
 		local i = 1
+		local ti = 1
+		
 		while i < #position do
 			local v1 = m * vmath.vector4(position[i], position[i+1], position[i+2], 1)
 			local v2 = m * vmath.vector4(position[i+3], position[i+4], position[i+5], 1)
@@ -361,6 +414,10 @@ function on_message(self, message_id, message, sender)
 			local n1 = n * vmath.vector4(normal[i], normal[i+1], normal[i+2], 0)
 			local n2 = n * vmath.vector4(normal[i+3], normal[i+4], normal[i+5], 0)
 			local n3 = n * vmath.vector4(normal[i+6], normal[i+7], normal[i+8], 0)
+
+			local st1 = vmath.vector3(texcoords[ti], texcoords[ti+1], 0)
+			local st2 = vmath.vector3(texcoords[ti+2], texcoords[ti+3], 0)
+			local st3 = vmath.vector3(texcoords[ti+4], texcoords[ti+5], 0)
 
 			v1 = vmath.vector3(v1.x, v1.y, v1.z)
 			v2 = vmath.vector3(v2.x, v2.y, v2.z)
@@ -371,8 +428,9 @@ function on_message(self, message_id, message, sender)
 			n3 = vmath.vector3(n3.x, n3.y, n3.z)
 			
 			i = i + 9
+			ti = ti + 6
 			
-			table.insert(faces, {v = {v1, v2, v3}, n = {n1, n2, n3}})
+			table.insert(faces, {v = {v1, v2, v3}, n = {n1, n2, n3}, st = {st1, st2, st3}, t = tkey})
 		end
 
 		
@@ -381,48 +439,16 @@ function on_message(self, message_id, message, sender)
 			pos = go.get_world_position(sender),
 			attn0 = message.attn0,
 			attn1 = message.attn1, 
-			attn2 = message.attn2
+			attn2 = message.attn2,
+			color = message.color
 		})
 	end
 end
 
 function update(self)
-	local title = "Light probes"
-	
 	if self.co then
 		coroutine.resume(self.co)
-		title = title .. " - calculating " .. self.count .. " of " .. PROBES_PER_ROW * PROBES_PER_ROW * PROBES_PER_ROW
 	end
 
-	imgui.set_next_window_size(500, 200)
-
-	imgui.begin_window(title)
-
-	local changed, checked = imgui.checkbox("show probes", SETTINGS.probes)
-	if changed then
-		SETTINGS.probes = not SETTINGS.probes
-	end
-
-	changed, checked = imgui.checkbox("textures", SETTINGS.textures)
-	if changed then
-		SETTINGS.textures = not SETTINGS.textures
-	end
-
-	changed, checked = imgui.checkbox("direct light", SETTINGS.direct)
-	if changed then
-		SETTINGS.direct = not SETTINGS.direct
-	end
-
-	changed, checked = imgui.checkbox("indirect light", SETTINGS.indirect)
-	if changed then
-		SETTINGS.indirect = not SETTINGS.indirect
-	end
-
-	changed, checked = imgui.checkbox("direct from probes", SETTINGS.direct2)
-	if changed then
-		SETTINGS.direct2 = not SETTINGS.direct2
-	end
-
-	imgui.end_window()
 end
 

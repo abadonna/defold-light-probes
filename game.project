@@ -15,7 +15,9 @@ package = com.defold.example.basic3d
 
 [project]
 title = defold-light-probes
+custom_resources = /assets
 dependencies#0 = https://github.com/britzl/extension-imgui/archive/master.zip
+dependencies#1 = https://github.com/Lerg/extension-imageloader/archive/master.zip
 
 [physics]
 type = 3D
@@ -27,7 +29,7 @@ bundle_identifier = com.defold.example.basic3d
 bundle_identifier = com.defold.example.basic3d
 
 [library]
-include_dirs = orbit-cam
+include_dirs = probes
 
 [model]
 max_count = 2000

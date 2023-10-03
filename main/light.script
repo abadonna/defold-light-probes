@@ -1,7 +1,0 @@
-go.property("attenuation0", 1.)
-go.property("attenuation1", 0.)
-go.property("attenuation2", 0.)
-
-function init(self)
-	msg.post("/gi", "register_light", {attn0 = self.attenuation0,  attn1 = self.attenuation1, attn2 = self.attenuation2})
-end

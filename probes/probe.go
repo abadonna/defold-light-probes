@@ -2,7 +2,7 @@ embedded_components {
   id: "model"
   type: "model"
   data: "mesh: \"/builtins/assets/meshes/sphere.dae\"\n"
-  "material: \"/materials/probe.material\"\n"
+  "material: \"/probes/materials/probe.material\"\n"
   "skeleton: \"\"\n"
   "animations: \"\"\n"
   "default_animation: \"\"\n"

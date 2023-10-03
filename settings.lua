@@ -4,7 +4,11 @@ local M = {
 	indirect = true,
 	direct2 = false,
 	textures = false,
-	lights = {}
+	lights = {},
+	images = {
+		[hash("/assets/images/green.texturec")] = "/assets/images/green.png",
+		[hash("/assets/images/2checker_256_32.texturec")] = "/assets/images/checker_256_32.png"
+	}
 }
 
 return M
