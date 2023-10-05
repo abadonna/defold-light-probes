@@ -52,6 +52,7 @@ void main()
     result = clamp(result, 0.0, 1.0);
 
     gl_FragColor =vec4(color.xyz * result , 1.0);
+    //gl_FragData[1] = vec4(color.xyz , 1.0);
     
 }
 
