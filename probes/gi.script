@@ -57,11 +57,9 @@ local function load_probes_into_texture(self, probes)
 	local my_texture_id = resource.create_texture("/probes.texturec", tparams, tbuffer)
 
 	-- assign the texture to a model
-	for _, mesh in ipairs(meshes) do
-		go.set(mesh, "texture1", my_texture_id)
-	end
-
-	go.set("/preview#mesh", "texture0", my_texture_id)
+	go.set("/quad#model", "texture1", my_texture_id)
+	--go.set("/preview#mesh", "texture0", my_texture_id)
+	
 end
 
 	
@@ -293,13 +291,12 @@ function init(self)
 		
 		local step = vmath.vector4((self.bounds_max.x - self.bounds_min.x)/(self.probes_per_row -1), (self.bounds_max.y - self.bounds_min.y)/(self.probes_per_row - 1), (self.bounds_max.z - self.bounds_min.z)/(self.probes_per_row - 1), 0)
 
-		for _, mesh in ipairs(meshes) do
-			go.set(mesh, "bounds", vmath.vector4(self.bounds_min.x, self.bounds_min.y, self.bounds_min.z, self.probes_per_row))
-			go.set(mesh, "step", step)
-			go.set(mesh, "size", vmath.vector4(1.0 / (self.probes_per_row * self.probes_per_row), 1.0 /self.probes_per_row, 1.0 / 9. --[[9 texels per probe]], 0))
-		end
 		
-		self.co = coroutine.create(function()
+		go.set("/quad#model", "bounds", vmath.vector4(self.bounds_min.x, self.bounds_min.y, self.bounds_min.z, self.probes_per_row))
+		go.set("/quad#model", "step", step)
+		go.set("/quad#model", "size", vmath.vector4(1.0 / (self.probes_per_row * self.probes_per_row), 1.0 /self.probes_per_row, 1.0 / 9. --[[9 texels per probe]], 0))
+		
+		--self.co = coroutine.create(function()
 		for z = 0, self.probes_per_row - 1 do
 			for y = 0, self.probes_per_row -1 do
 				for x = 0, self.probes_per_row  - 1 do
@@ -333,7 +330,7 @@ function init(self)
 						
 						table.insert(probes, probe)
 						self.count = self.count + 1
-						coroutine.yield()
+						--coroutine.yield()
 					end
 				end
 			end
@@ -341,9 +338,9 @@ function init(self)
 
 			load_probes_into_texture(self, probes)
 			faces = nil
-		end)
+		--end)
 
-		coroutine.resume(self.co)
+		--coroutine.resume(self.co)
 	end)
 end
 

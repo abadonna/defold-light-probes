@@ -140,7 +140,7 @@ function update(self)
     render.disable_state(render.STATE_DEPTH_TEST)
     render.disable_state(render.STATE_CULL_FACE)
 
-    render.enable_texture(0, self.rt_gbuffer, render.BUFFER_COLOR1_BIT)
+    render.enable_texture(0, self.rt_gbuffer, render.BUFFER_COLOR0_BIT)
     render.draw(self.quad_pred)
     render.disable_texture(0)
     render.draw_debug3d()
