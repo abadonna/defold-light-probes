@@ -30,6 +30,7 @@ local function load_probes_into_texture(self, probes)
 				for i = 1, 9 do
 					tstream[index + i] = probe.r[i]
 				end
+				
 				index = index + 9
 
 				for i = 1, 9 do
@@ -58,7 +59,7 @@ local function load_probes_into_texture(self, probes)
 
 	-- assign the texture to a model
 	go.set("/quad#model", "texture1", my_texture_id)
-	--go.set("/preview#mesh", "texture0", my_texture_id)
+	go.set("/preview#mesh", "texture0", my_texture_id)
 	
 end
 
@@ -296,7 +297,7 @@ function init(self)
 		go.set("/quad#model", "step", step)
 		go.set("/quad#model", "size", vmath.vector4(1.0 / (self.probes_per_row * self.probes_per_row), 1.0 /self.probes_per_row, 1.0 / 9. --[[9 texels per probe]], 0))
 		
-		--self.co = coroutine.create(function()
+		self.co = coroutine.create(function()
 		for z = 0, self.probes_per_row - 1 do
 			for y = 0, self.probes_per_row -1 do
 				for x = 0, self.probes_per_row  - 1 do
@@ -308,13 +309,13 @@ function init(self)
 						local model = msg.url(probe.id)
 						model.fragment =  "model"
 
-						--[[
-						probe.coef = {0,0,0,0,0,0,0,0,0}
-						probe.coef[1] = 0.25 * x
-						probe.coef[2] = 0.25 * y
-						probe.coef[3] = 0.25 * z
-						probe.coef[4] = 1.
-						--]]
+					
+						
+						--probe.r[1] = 0.25 * x
+						--probe.r[2] = 0.25 * y
+						--probe.r[3] = 0.25 * z
+						
+						
 						
 						go.set(model, "red", vmath.vector4(probe.r[1], probe.r[2], probe.r[3], probe.r[4]), {index = 1})
 						go.set(model, "red", vmath.vector4(probe.r[5], probe.r[6], probe.r[7], probe.r[8]), {index = 2})
@@ -330,7 +331,7 @@ function init(self)
 						
 						table.insert(probes, probe)
 						self.count = self.count + 1
-						--coroutine.yield()
+						coroutine.yield()
 					end
 				end
 			end
@@ -338,9 +339,9 @@ function init(self)
 
 			load_probes_into_texture(self, probes)
 			faces = nil
-		--end)
+		end)
 
-		--coroutine.resume(self.co)
+		coroutine.resume(self.co)
 	end)
 end
 

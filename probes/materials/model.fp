@@ -15,30 +15,32 @@ uniform lowp vec4 light_color;
 void main()
 {
 
-    vec4 color = vec4(1., 1., 1., 1.);
+    // Diffuse light calculations
+    vec4 color = vec4(0., 0., 0., 1.);
+    vec3 result = vec3(1.);
+    if (settings.x == 1.) { //direct
+        vec3 light_dir = vec3(normalize(var_light.xyz - var_position.xyz));
+        float d = distance(var_light.xyz, var_position.xyz);
+        float k = 1. / (light_attn.x + d * light_attn.y + d * d * light_attn.z);
+        float diffuse = max(dot(var_normal, light_dir), 0.0)  * k;
+
+        result = light_color.xyz * diffuse;
+        color = vec4(1.);
+    }
+    
+   
     vec4 tint_pm = vec4(tint.xyz * tint.w, tint.w);
 
     if (settings.w == 1.) { //textures
         color = texture2D(tex0, var_texcoord0.xy) * tint_pm;
     }
 
- 
-    // Diffuse light calculations
-    vec3 light_dir = vec3(normalize(var_light.xyz - var_position.xyz));
-    float d = distance(var_light.xyz, var_position.xyz);
-    float k = 1. / (light_attn.x + d * light_attn.y + d * d * light_attn.z);
-    float diffuse = max(dot(var_normal, light_dir), 0.0)  * k;
-
-    vec3 result = vec3(0.);
-    if (settings.x == 1.) { //direct
-        result = light_color.xyz * diffuse;
-    }
-
-   
-    result = clamp(result, 0.0, 1.0);
-
+    
     gl_FragColor =vec4(color.xyz * result , 1.0);
-    gl_FragData[1] = vec4(color.xyz , 1.0);
+
+    vec3 rgb_normal = var_world_normal * 0.5 + 0.5;
+    gl_FragData[1] = vec4(rgb_normal, 1.0);
+    gl_FragData[2] = var_world_position;
     
 }
 

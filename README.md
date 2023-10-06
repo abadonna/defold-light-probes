@@ -1,6 +1,6 @@
 # Light probes for Defold
 
-An attempt to implement irradiance probes for global illumination in Defold.
+This branch contains multi-pass approach, so we calculate light from probes in a separate pass.
 
 ## Workflow
 * collect geometry for raytraycing
@@ -14,7 +14,7 @@ Defold (1.5.0) doesn't support compute shaders, so raytracing is performed on CP
 
 
 ## How to achieve better results
-Calculate lighting on second render pass, so we can discard invisible probes by checking depth in depth buffer.
+Need a better way to discard wrong probes, e.g. DDGI
 
 
 ## Reference

@@ -60,7 +60,7 @@ function init(self)
 
 
 
-    local buffer_params_rgba8 = {
+    local color_params_rgba8 = {
         format     = render.FORMAT_RGBA,
         width      = render.get_window_width(),
         height     = render.get_window_height(),
@@ -70,17 +70,26 @@ function init(self)
         v_wrap     = render.WRAP_CLAMP_TO_EDGE
     }
 
+    local data_params = {
+        format     = render.FORMAT_RGB32F,
+        width      = render.get_window_width(),
+        height     = render.get_window_height(),
+        min_filter = render.FILTER_NEAREST,
+        mag_filter = render.FILTER_NEAREST,
+        u_wrap     = render.WRAP_CLAMP_TO_EDGE,
+        v_wrap     = render.WRAP_CLAMP_TO_EDGE
+    }
+
     local depth_params = {
         format = render.FORMAT_DEPTH,
         width  = render.get_window_width(),
-        height = render.get_window_height(),
-        u_wrap = render.WRAP_CLAMP_TO_EDGE,
-        v_wrap = render.WRAP_CLAMP_TO_EDGE
+        height = render.get_window_height()
     }
 
     self.rt_gbuffer = render.render_target({
-        [render.BUFFER_COLOR0_BIT] = buffer_params_rgba8, --color
-        [render.BUFFER_COLOR1_BIT] = buffer_params_rgba8, --normals
+        [render.BUFFER_COLOR0_BIT] = color_params_rgba8, --color
+        [render.BUFFER_COLOR1_BIT] = color_params_rgba8, --normals
+        [render.BUFFER_COLOR2_BIT] = data_params, --position
         [render.BUFFER_DEPTH_BIT] = depth_params
     })
 end
@@ -96,8 +105,7 @@ function update(self)
     render.set_viewport(0, 0, render.get_window_width(), render.get_window_height())
     render.set_view(self.view)
 
-    render.set_depth_mask(false)
-    render.disable_state(render.STATE_DEPTH_TEST)
+   
     render.disable_state(render.STATE_STENCIL_TEST)
     render.enable_state(render.STATE_BLEND)
     render.set_blend_func(render.BLEND_SRC_ALPHA, render.BLEND_ONE_MINUS_SRC_ALPHA)
@@ -110,7 +118,7 @@ function update(self)
     render.set_blend_func(render.BLEND_SRC_ALPHA, render.BLEND_ONE_MINUS_SRC_ALPHA)
     render.enable_state(render.STATE_CULL_FACE)
     render.enable_state(render.STATE_DEPTH_TEST)
-    render.set_depth_mask(true)
+  
 
     local constants = render.constant_buffer()
     constants.settings = vmath.vector4(
@@ -129,8 +137,10 @@ function update(self)
         render.set_depth_mask(false)
         render.draw(self.probe_pred)
     end
+    
 
     render.set_render_target(render.RENDER_TARGET_DEFAULT)
+
     render.clear({[render.BUFFER_COLOR_BIT] = self.clear_color, [render.BUFFER_DEPTH_BIT] = 1, [render.BUFFER_STENCIL_BIT] = 0})
     
    
@@ -140,10 +150,17 @@ function update(self)
     render.disable_state(render.STATE_DEPTH_TEST)
     render.disable_state(render.STATE_CULL_FACE)
 
+   
     render.enable_texture(0, self.rt_gbuffer, render.BUFFER_COLOR0_BIT)
-    render.draw(self.quad_pred)
+    render.enable_texture(2, self.rt_gbuffer, render.BUFFER_COLOR1_BIT)
+    render.enable_texture(3, self.rt_gbuffer, render.BUFFER_COLOR2_BIT)
+    
+    render.draw(self.quad_pred, constants)
+    
     render.disable_texture(0)
-    render.draw_debug3d()
+    
+
+   
     
     -- render GUI
     --

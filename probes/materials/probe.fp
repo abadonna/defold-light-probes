@@ -36,5 +36,6 @@ void main()
     }
     
     gl_FragColor = radiance;
+    //gl_FragColor = vec4(red[0].xyz, 1);
 }
 
