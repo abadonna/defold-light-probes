@@ -15,7 +15,9 @@ package = com.defold.example.basic3d
 
 [project]
 title = defold-light-probes
+custom_resources = /programs
 dependencies#0 = https://github.com/britzl/extension-imgui/archive/master.zip
+dependencies#1 = https://github.com/abadonna/defold-opencl/archive/master.zip
 
 [physics]
 type = 3D

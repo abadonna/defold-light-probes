@@ -3,6 +3,8 @@ go.property('bounds_max', vmath.vector3(10, 10, 10))
 
 local SETTINGS = require "settings"
 
+local geometry
+local lights
 local faces = {}
 local meshes = {}
 
@@ -11,10 +13,15 @@ local RAYS =  256
 
 local BIAS = 0.01
 
+local tbuffer
+local device
+local program
+local kernel
+
+
 local function load_probes_into_texture(probes)
 	--each probe (9 sh coefficients) will be stored in 3 rgb texels
 		
-	local tbuffer = buffer.create(PROBES_PER_ROW * PROBES_PER_ROW * PROBES_PER_ROW * 3, { {name=hash("rgb"), type=buffer.VALUE_TYPE_FLOAT32, count=3} } )
 	local tstream = buffer.get_stream(tbuffer, hash("rgb"))
 
 	-- Fill the buffer stream with float values
@@ -61,121 +68,6 @@ local function load_probes_into_texture(probes)
 	go.set("/preview#mesh", "texture0", my_texture_id)
 end
 
-	
---https://www.scratchapixel.com
-local function ray_triangle_intersect(orig, dir, v1, v2, v3)
-
-	local epsilon = 1e-8
-	
-	-- compute the plane's normal
-	local vv1 = v2 - v1
-	local vv2 = v3 - v1
-	-- no need to normalize
-	local n = vmath.cross(vv1, vv2)
-	local area2 = vmath.length(n)
-
-	-- Step 1: finding P
-
-	-- check if the ray and plane are parallel.
-	local n_dot_ray = vmath.dot(n, dir)
-	if math.abs(n_dot_ray) < epsilon then -- almost 0
-		return false end -- they are parallel, so they don't intersect! 
-
-	local d = - vmath.dot(n, v1)
-
-	local t = -(vmath.dot(n, orig) + d) / n_dot_ray;
-
-	-- check if the triangle is behind the ray
-	if (t < 0) then return false end -- the triangle is behind
-
-	local p = orig + t * dir;
-
-	local edge = v2 - v1; 
-	local vp = p - v1;
-	local c = vmath.cross(edge, vp) -- vector perpendicular to triangle's plane
-	if (vmath.dot(n, c) < 0) then return false end -- p is on the right side
-
-	edge = v3 - v2
-	vp = p - v2
-	c = vmath.cross(edge, vp)
-	local u = vmath.length(c) / area2
-	if (vmath.dot(n, c) < 0) then return false end
-
-	edge = v1 - v3
-	vp = p - v3
-	c = vmath.cross(edge, vp) 
-	local v = vmath.length(c) / area2
-	if (vmath.dot(n, c) < 0) then return false end
-
-	return true, t, u, v -- this ray hits the triangle
-end
-
-local function intersect(orig, dir) 
-	local result = false
-	local near = math.huge
-	local face = nil
-	local uv = {}
-	for i, f in ipairs(faces) do
-	
-		local check, t, u, v  = ray_triangle_intersect(orig, dir, f.v[1], f.v[2], f.v[3])
-		
-		if check and (t < near) then
-			near = t
-			face = f
-			uv.x = u
-			uv.y = v
-			result = true 
-		end
-	end
-
-	return result, near, face, uv
-end
-
-local function get_normal(point, face, uv)
-	local n = (1 - uv.x - uv.y) * face.n[1] + uv.x * face.n[2] + uv.y * face.n[3]
-
-	n = vmath.normalize(n)
-
-	--texture coordinates
-	--const Vec2f &st0 = texCoordinates[trisIndex[triIndex * 3]]
-	--const Vec2f &st1 = texCoordinates[trisIndex[triIndex * 3 + 1]]; 
-	--const Vec2f &st2 = texCoordinates[trisIndex[triIndex * 3 + 2]]; 
-	--hitTextureCoordinates = (1 - uv.x - uv.y) * st0 + uv.x * st1 + uv.y * st2; 
-	return n
-end
-
-local function cast_ray(orig, dir)
-	local index = 0
-	local result = vmath.vector3(0, 0, 0)
-	local intersection, near, face, uv = intersect(orig, dir)
-	if intersection then
-		--calculate light
-		local point = orig + dir * near
-		local n = get_normal(point, face, uv)
-
-		local color = vmath.vector3(1, 1, 1) -- need to read texture here and multiply by light color
-		for _, light in ipairs(SETTINGS.lights) do
-			--trace shadow
-			local light_dir = vmath.normalize(light.pos - point)
-		
-			local shadow = intersect(point + n * BIAS, light_dir)
-			if not shadow then
-				local d = vmath.length(light.pos - point)
-				local k = 1. / (light.attn0 + light.attn1 * d + light.attn2 * d * d)
-				local diff = math.max(0, vmath.dot(n, light_dir));
-
-				--attenutate again to probe position?
-				--d = vmath.length(orig - point)
-				--k = k / (light.attn0 + light.attn1 * d + light.attn2 * d * d)
-				
-				result = result + color * diff * k;
-			end
-		end
-	end
-
-	return result
-end
-
 --https://handmade.network/p/75/monter/blog/p/7288-engine_work__global_illumination_with_irradiance_probes
 --https://www.ppsloan.org/publications/StupidSH36.pdf    ---Appendix A2
 local function sh(dir, basis)
@@ -185,81 +77,156 @@ local function sh(dir, basis)
 	end
 	
 	if basis == 2 then
-		return -0.48860251190291992159 * dir.y
+		return -0.48860251190291992159 * dir[2]
 	end
 	
 	if basis == 3 then
-		return 0.48860251190291992159 * dir.z
+		return 0.48860251190291992159 * dir[3]
 	end
 
 	if basis == 4 then
-		return  -0.48860251190291992159 * dir.x
+		return  -0.48860251190291992159 * dir[1]
 	end
 
 	if basis == 5 then
-		return 1.092548430592079 * dir.x * dir.y
+		return 1.092548430592079 * dir[1] * dir[2]
 	end
 
 	if basis == 6 then
-		return -1.092548430592079 * dir.z * dir.y
+		return -1.092548430592079 * dir[3] * dir[2]
 	end
 
 	if basis == 7 then
-		return 0.31539156525252 * (3 * dir.z * dir.z - 1)
+		return 0.31539156525252 * (3 * dir[3] * dir[3] - 1)
 	end
 
 	if basis == 8 then
-		return -1.092548430592079 * dir.z * dir.x
+		return -1.092548430592079 * dir[3] * dir[1]
 	end
 
 	if basis == 9 then
-		return 0.54627421529604 * (dir.x * dir.x - dir.y * dir.y)
+		return 0.54627421529604 * (dir[1] * dir[1] - dir[2] * dir[2])
 	end
 
 	return 0.0
 end
 
 	
-local function calculate_probe(probe)
+local function calculate_probe(self, probe)
 	local num_coef = 9
 	probe.coef = {0, 0, 0, 0, 0, 0, 0, 0, 0}
 
-	--https://3dvar.com/Green2003Spherical.pdf
-	local sqrt_n_samples = math.sqrt(RAYS)
-	local n = 1.0/sqrt_n_samples
-	for a = 0, sqrt_n_samples - 1 do
-		for b = 0, sqrt_n_samples - 1 do
-			-- generate unbiased distribution of spherical coords 
-			local x = (a + math.random()) * n
-			local y = (b + math.random()) * n
-			local theta = 2.0 * math.acos(math.sqrt(1.0 - x))
-			local phi = 2.0 * math.pi * y
-			--convert spherical coords to unit vector
-			local dir = vmath.vector3(math.sin(theta)*math.cos(phi), math.sin(theta)*math.sin(phi), math.cos(theta))
-
-			local value = cast_ray(probe.pos, dir)
-			
-			for i = 1, num_coef do 
-				probe.coef[i] = probe.coef[i] + value.x * sh(dir, i) --just one set of coefficients, TODO - 3 sets: for each color channel
-			end
-			
-		end
-	end
-
-	--scale
+	--kernel:set_arg_vec3(6, {probe.pos.x, probe.pos.y, probe.pos.z}) 
+	kernel:set_arg_vec3(8, {probe.pos.x,probe.pos.y,probe.pos.z}) 
+	local sec = kernel:run(1, {256}, {256})
+	--pprint("Kernel run in " .. sec .. " seconds")
+	local data = kernel:read(9, 9)
 	for i = 1, num_coef do 
-		probe.coef[i] = probe.coef[i] * 4 * math.pi / RAYS
+		probe.coef[i] = data[i];
 	end
-
+	
 end
 
 function init(self)
+
+	tbuffer = buffer.create(PROBES_PER_ROW * PROBES_PER_ROW * PROBES_PER_ROW * 3, { {name=hash("rgb"), type=buffer.VALUE_TYPE_FLOAT32, count=3} } )
+	
+	local src = sys.load_resource("/programs/raytrace.c") -- opencl kernel code
+	local devices = opencl.get_devices()
+
+	device = devices[2]
+
+	program = device:load_program(src)
+	kernel = program:create_kernel("calculate")
+	
+	--self.program = devices[1]:load_program(src)
+	--self.kernel = program:create_kernel("cast_ray")
+
+
 	imgui.set_ini_filename()
 	self.count = 0
-	local probes = {}
+	self.probes = {}
 	math.randomseed(os.clock()*100000)
 
 	timer.delay(.1, false, function()
+
+		geometry = buffer.create(#faces * 3, { -- input data for opencl kernel
+			{ name = hash("positions"), type = buffer.VALUE_TYPE_FLOAT32, count = 3 },
+			{ name = hash("normals"), type = buffer.VALUE_TYPE_FLOAT32, count = 3 },
+		})
+
+		local positions = buffer.get_stream(geometry, hash("positions"))
+		local normals = buffer.get_stream(geometry, hash("normals"))
+
+		local count = 0
+		for _, face in ipairs(faces) do
+			positions[count + 1] = face.v[1].x
+			positions[count + 2] = face.v[1].y
+			positions[count + 3] = face.v[1].z
+			positions[count + 4] = face.v[2].x
+			positions[count + 5] = face.v[2].y
+			positions[count + 6] = face.v[2].z
+			positions[count + 7] = face.v[3].x
+			positions[count + 8] = face.v[3].y
+			positions[count + 9] = face.v[3].z
+
+			normals[count + 1] = face.n[1].x
+			normals[count + 2] = face.n[1].y
+			normals[count + 3] = face.n[1].z
+			normals[count + 4] = face.n[2].x
+			normals[count + 5] = face.n[2].y
+			normals[count + 6] = face.n[2].z
+			normals[count + 7] = face.n[3].x
+			normals[count + 8] = face.n[3].y
+			normals[count + 9] = face.n[3].z
+
+			count = count + 9
+		end
+
+		lights = buffer.create(#SETTINGS.lights, { -- input data for opencl kernel
+			{ name = hash("positions"), type = buffer.VALUE_TYPE_FLOAT32, count = 3 },
+			{ name = hash("attn"), type = buffer.VALUE_TYPE_FLOAT32, count = 3 },
+		})
+
+		positions = buffer.get_stream(lights, hash("positions"))
+		local attn = buffer.get_stream(lights, hash("attn"))
+
+		count = 0
+		for _, light in ipairs(SETTINGS.lights) do
+			positions[count + 1] = light.pos.x
+			positions[count + 2] = light.pos.y
+			positions[count + 3] = light.pos.z
+
+			attn[count + 1] = light.attn0
+			attn[count + 2] = light.attn1
+			attn[count + 3] = light.attn2
+		end
+
+		local output = buffer.create(9, {
+			{ name = hash("data"), type = buffer.VALUE_TYPE_FLOAT32, count = 1 }
+		})
+
+		local randoms = buffer.create(512, {
+			{ name = hash("data"), type = buffer.VALUE_TYPE_FLOAT32, count = 1 },
+		})
+
+		local stream = buffer.get_stream(randoms, hash("data"))
+		for i = 1, 512 do
+			stream[i] = math.random()
+		end
+		
+
+		kernel:set_arg_buffer(1, geometry, "positions", true) 
+		kernel:set_arg_buffer(2, geometry, "normals", true) 
+		kernel:set_arg_buffer(3, lights, "positions", true) 
+		kernel:set_arg_buffer(4, lights, "attn", true) 
+		kernel:set_arg_buffer(5, randoms, "data", true) 
+		kernel:set_arg_int(6, #faces) 
+		kernel:set_arg_int(7, #lights) 
+		
+		kernel:set_arg_buffer(9, output, "data", true, true)
+		kernel:set_arg_null(10, 4 * 256 * 9)  --local memeory buffer, 256x9 floats
+		
 		
 		local step = vmath.vector4((self.bounds_max.x - self.bounds_min.x)/(PROBES_PER_ROW -1), (self.bounds_max.y - self.bounds_min.y)/(PROBES_PER_ROW - 1), (self.bounds_max.z - self.bounds_min.z)/(PROBES_PER_ROW - 1), 0)
 
@@ -269,14 +236,14 @@ function init(self)
 			go.set(mesh, "size", vmath.vector4(1.0 / (PROBES_PER_ROW * PROBES_PER_ROW), 1.0 /PROBES_PER_ROW, 0, 0))
 		end
 		
-		self.co = coroutine.create(function()
+		--self.co = coroutine.create(function()
 			for z = 0, PROBES_PER_ROW - 1 do
 				for y = 0, PROBES_PER_ROW -1 do
 					for x = 0, PROBES_PER_ROW  - 1 do
 						local pos = vmath.vector3(self.bounds_min.x + step.x * x, self.bounds_min.y  + step.y * y, self.bounds_min.z  + step.z * z)
 						local id = factory.create("/probes#factory", pos, nil, {}, vmath.vector3(0.4,0.4,0.4))
 						local probe = {id = id, pos = pos}
-						calculate_probe(probe)
+						calculate_probe(self, probe)
 
 						local model = msg.url(probe.id)
 						model.fragment =  "model"
@@ -293,20 +260,20 @@ function init(self)
 						go.set(model, "coefs", vmath.vector4(probe.coef[5], probe.coef[6], probe.coef[7], probe.coef[8]), {index = 2})
 						go.set(model, "coefs", vmath.vector4(probe.coef[9], 0, 0, 0), {index = 3})
 
-						table.insert(probes, probe)
+						table.insert(self.probes, probe)
 						self.count = self.count + 1
-						coroutine.yield()
+						--coroutine.yield()
 					end
 				end
 			end
 			self.co = nil
 
-			load_probes_into_texture(probes)
+			load_probes_into_texture(self.probes)
 			faces = nil
 		end)
 
-		coroutine.resume(self.co)
-	end)
+		--coroutine.resume(self.co)
+--	end)
 end
 
 local function transpose(m)
@@ -385,6 +352,14 @@ function on_message(self, message_id, message, sender)
 		})
 	end
 end
+
+--[[
+function fixed_pdate(self)
+	for _,p in ipairs(self.probes) do
+		calculate_probe(self, probe)
+	end 
+end
+--]]
 
 function update(self)
 	local title = "Light probes"
