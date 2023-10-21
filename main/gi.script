@@ -65,17 +65,20 @@ local function calculate_probes(self)
 	local sec = kernel:run(2, {256, #self.probes}, {256, 1})
 	--pprint("Kernel run in " .. sec .. " seconds")
 
-	kernel:read(9, 9 * #self.probes, self.pbuffer, "data")
+	kernel:read(8, 9 * #self.probes, self.pbuffer, "data")
+	
 	for i, probe in ipairs(self.probes) do
 		for j = 1, 9 do 
 			probe.coef[j] = self.pstream[(i - 1) * 9 + j];
 		end
+
+		--this part is slow, TODO - render probes with data from texture
 		go.set(probe.model, "coefs", vmath.vector4(probe.coef[1], probe.coef[2], probe.coef[3], probe.coef[4]), {index = 1})
 		go.set(probe.model, "coefs", vmath.vector4(probe.coef[5], probe.coef[6], probe.coef[7], probe.coef[8]), {index = 2})
 		go.set(probe.model, "coefs", vmath.vector4(probe.coef[9], 0, 0, 0), {index = 3})
 	end
 
-	load_probes_into_texture(self)
+	load_probes_into_texture(self) --TODO: fill image buffer in openCL as well
 end
 
 function init(self)
@@ -168,15 +171,6 @@ function init(self)
 			attn[count + 3] = light.attn2
 		end
 
-		local randoms = buffer.create(512, {
-			{ name = hash("data"), type = buffer.VALUE_TYPE_FLOAT32, count = 1 },
-		})
-
-		local stream = buffer.get_stream(randoms, hash("data"))
-		for i = 1, 512 do
-			stream[i] = math.random()
-		end
-
 		kernel = program:create_kernel("calculate")
 		
 
@@ -184,9 +178,8 @@ function init(self)
 		kernel:set_arg_buffer(2, geometry, "normals", true) 
 		kernel:set_arg_buffer(3, lights, "positions", true) 
 		kernel:set_arg_buffer(4, lights, "attn", true) 
-		kernel:set_arg_buffer(5, randoms, "data", true) 
-		kernel:set_arg_int(6, #faces) 
-		kernel:set_arg_int(7, #lights) 
+		kernel:set_arg_int(5, #faces) 
+		kernel:set_arg_int(6, #lights) 
 		
 		
 
@@ -231,9 +224,9 @@ function init(self)
 			})
 			
 
-			kernel:set_arg_buffer(8, probes, "positions", true) 
-			kernel:set_arg_buffer(9, output, "data", false, true)
-			kernel:set_arg_null(10, 4 * 256 * 9)  -- local memory buffer, 256x9 floats for each probe
+			kernel:set_arg_buffer(7, probes, "positions", true) 
+			kernel:set_arg_buffer(8, output, "data", false, true)
+			kernel:set_arg_null(9, 4 * 256 * 9)  -- local memory buffer, 256x9 floats for each probe
 
 			
 			calculate_probes(self)
@@ -319,7 +312,7 @@ function on_message(self, message_id, message, sender)
 		positions[(message.light_id - 1) * 3 + 2] = pos.y
 		positions[(message.light_id - 1) * 3 + 3] = pos.z
 
-		kernel:set_arg_buffer(3, lights, "positions", true) 
+		kernel:set_arg_buffer(3, lights, "positions", true)  --TODO: update buffer, not replace
 		
 
 	elseif message_id == hash("register_light") then

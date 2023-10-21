@@ -159,7 +159,6 @@ __kernel void calculate(__global float3* p,
 						__global float3* n, 
 						__global float3* lights, 
 						__global float3* attn, 
-						__global float* random,
 						const int num_faces,
 						const int num_lights,
 						__global float3* probes, 
@@ -173,8 +172,7 @@ __kernel void calculate(__global float3* p,
 	
 	float a = floor(i / 16.f); // 16 = sqrt(256)
 	float b = i - a * 256;
-	//float x = (a + random[i * 2]) * 0.0625; // 1/16
-	//float y = (b + random[i * 2 + 1]) * 0.0625;
+	
 	float x = (a + rnd(from.x + i, from.y * i )) * 0.0625; // 1/16
 	float y = (b + rnd(from.z + i, from.x + i)) * 0.0625;
 
