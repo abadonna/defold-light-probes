@@ -72,9 +72,10 @@ int intersect(float3 *orig, float3 *dir, int num_faces, __global float3* p, floa
 
 	float u, v, t;
 	for (int i = 0; i < num_faces; i ++) {
-		float3 v0 = p[i * 3];
-		float3 v1 = p[i * 3 + 1];
-		float3 v2 = p[i * 3 + 2];
+		int k = i * 3;
+		float3 v0 = p[k];
+		float3 v1 = p[k + 1];
+		float3 v2 = p[k + 2];
 		
 		if (rayTriangleIntersect(orig, dir, &v0, &v1, &v2, &t, &u, &v) && t < *dist) {
 			*dist = t;
@@ -112,17 +113,21 @@ float cast_ray(
 		for (int i = 0; i < *num_lights; i++) {
 			float color = 1.f;
 			float3 light_dir = normalize(lights[i] - point);
+			
+			float diff = max(0.f, dot(normal, light_dir));
+			if (diff == 0.f) {
+				continue;
+			}
+			
 			float3 hit = point +  normal * 0.01f; //bias = 0.01
 			float d = FLT_MAX;
 			float2 uv2;
+
 			int shadow = intersect(&hit, &light_dir, num_faces, p, &d, &uv2);
 			if (shadow == -1) 
 			{
-				d = length(lights[i] - point);
-				
+				d = length(lights[i] - point);			
 				float k = 1. / (attn[i].x + attn[i].y * d + attn[i].z * d * d);
-				float diff = max(0.f, dot(normal, light_dir));
-
 				result += color * diff * k;
 			}
 		}
@@ -144,6 +149,11 @@ float sh(int basis, float3 *dir) {
 	return 0.0;
 }
 
+float rnd (float s, float t) {
+	float f;
+	return fract(sin(s * 12.9898f + t * 78.233f) * 43758.5453123, &f);
+}
+
 //256 rays
 __kernel void calculate(__global float3* p, 
 						__global float3* n, 
@@ -152,43 +162,52 @@ __kernel void calculate(__global float3* p,
 						__global float* random,
 						const int num_faces,
 						const int num_lights,
-						const float3 from, 
+						__global float3* probes, 
 						__global float* res,
 						__local float* temp)
-	{
+{
 	const int i = get_global_id(0); // get a unique number identifying the work item in the global pool
+	const int probe_idx = get_global_id(1); 
 
+	float3 from = probes[probe_idx];
+	
 	float a = floor(i / 16.f); // 16 = sqrt(256)
 	float b = i - a * 256;
-	float x = (a + random[i * 2]) * 0.0625; // 1/16
-	float y = (b + random[i * 2 + 1]) * 0.0625;
+	//float x = (a + random[i * 2]) * 0.0625; // 1/16
+	//float y = (b + random[i * 2 + 1]) * 0.0625;
+	float x = (a + rnd(from.x + i, from.y * i )) * 0.0625; // 1/16
+	float y = (b + rnd(from.z + i, from.x + i)) * 0.0625;
 
 	float theta = 2.0 * acos(sqrt(1.0f - x));
 	float phi = 2.0 * M_PI_F * y;
 	//convert spherical coords to unit vector
 	float3 dir = (float3)(sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta));
 	
+	//int offset = probe_idx * 256 ;
+	
 	float value = cast_ray(&from, &dir, num_faces, p, n, &num_lights, lights, attn);
 	int k = i * 9;
 	for (int j = 0; j < 9; j++) {
-		temp[k + j] = sh(j, &dir) * value;
+		temp[ k + j] = sh(j, &dir) * value;
 	}
+
 	
 	barrier(CLK_LOCAL_MEM_FENCE);
 
 	
 	if (i == 0) {
+		int offset = get_group_id(1) * 9;
 		for (int k = 0; k < 9; k++) {
-			res[k] = 0.f;
+			res[offset + k] = 0.f;
 			for (int j = 0; j < 256; j++) {
-				res[k] += temp[j * 9 + k];
+				res[offset + k] += temp[j * 9 + k];
 			}
 		}
 
+		//scale
 		for (int k = 0; k < 9; k++) {
-			res[k] = res[k] * 4.f * M_PI_F / 256.f;
+			res[offset + k] = res[offset + k] * 4.f * M_PI_F / 256.f;
 		}
 	}
-
 	
 }

@@ -3,5 +3,19 @@ go.property("attenuation1", 0.)
 go.property("attenuation2", 0.)
 
 function init(self)
+	self.pos = go.get_position()
 	msg.post("/gi", "register_light", {attn0 = self.attenuation0,  attn1 = self.attenuation1, attn2 = self.attenuation2})
+end
+
+function on_message(self, message_id, message, sender)
+	if message_id == hash("id_assinged") then
+		self.id = message.light_id
+	end
+end
+
+function update(self)
+	local pos = go.get_position()
+	if pos ~= self.pos and self.id then
+		msg.post("/gi", "update_light", {light_id = self.id})
+	end
 end
